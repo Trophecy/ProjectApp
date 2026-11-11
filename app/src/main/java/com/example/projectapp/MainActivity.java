@@ -2,9 +2,12 @@ package com.example.projectapp;
 
 import static android.view.Gravity.LEFT;
 
+import static com.example.projectapp.FirebaseRef.refUserItems;
+
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
@@ -15,6 +18,15 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,25 +77,28 @@ public class MainActivity extends AppCompatActivity {
         recyclerView.setAdapter(adapter);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
+        readItemsFromDB(adapter);
+
         ItemTouchHelper.SimpleCallback simpleCallback = new ItemTouchHelper.SimpleCallback(
         ItemTouchHelper.UP | ItemTouchHelper.DOWN, ItemTouchHelper.RIGHT | ItemTouchHelper.LEFT) {
 
-        public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder,  @NonNull RecyclerView.ViewHolder target) {
-            int fromPos = viewHolder.getAdapterPosition();
-            int toPos = target.getAdapterPosition();
+            public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder, @NonNull RecyclerView.ViewHolder target) {
+                int fromPos = viewHolder.getAdapterPosition();
+                int toPos = target.getAdapterPosition();
 
-            Collections.swap(Items, fromPos, toPos); // ArrayList ב שינוי
-            adapter.notifyItemMoved(fromPos, toPos);
-            return true;
-        }
-        public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
-            int position = viewHolder.getAdapterPosition();
-            if (direction == ItemTouchHelper.RIGHT) {
-                Items.remove(position);
-                adapter.notifyDataSetChanged();
+                Collections.swap(Items, fromPos, toPos); // ArrayList ב שינוי
+                adapter.notifyItemMoved(fromPos, toPos);
+                return true;
             }
-        }
-    };
+
+            public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+                int position = viewHolder.getAdapterPosition();
+                if (direction == ItemTouchHelper.RIGHT) {
+                    Items.remove(position);
+                    adapter.notifyDataSetChanged();
+                }
+            }
+        };
         ItemTouchHelper itemTouchHelper = new ItemTouchHelper(simpleCallback);
         itemTouchHelper.attachToRecyclerView(recyclerView);
 
@@ -93,10 +108,53 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 Random rand = new Random();
                 int num = rand.nextInt(100);
-                Item item = new Item("Item 1", "Description 1", 1);
-                Items.add(item);
-                adapter.notifyDataSetChanged();
+                Item item = new Item();
+
+                FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
+                if (currentUser != null) {
+                    String userId = currentUser.getUid();
+                    DatabaseReference userItemsRef = refUserItems.child(userId);
+                    String id = userItemsRef.push().getKey();
+                    item.setKeyId(id);
+                    userItemsRef.child(id).setValue(item).addOnCompleteListener(new OnCompleteListener<Void>() {
+                        @Override
+                        public void onComplete(@NonNull Task<Void> task) {
+                            if (task.isSuccessful()) {
+                                Items.add(item);
+                                adapter.notifyDataSetChanged();
+                            }
+                            else {
+
+                            }
+                        }
+                    });
+                }
             }
         });
     }
+    public void readItemsFromDB(MyAdapter adapter) {
+        FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
+        if (currentUser == null) return;
+
+        DatabaseReference userItemsRef = refUserItems.child(currentUser.getUid());
+        userItemsRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dS) {
+                Items.clear();
+                for (DataSnapshot data : dS.getChildren()) {
+                    Item item = data.getValue(Item.class);
+                    if (item != null) {
+                        Items.add(item);
+                    }
+                }
+                adapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError databaseError) {
+//                Toast.makeText(MainActivity.this, "Failed to load items.", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
 }
